@@ -2,26 +2,240 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guia de Instrumentação: OpenTelemetry em WinForms</title>
-    <!-- Estilos omitidos para concisão. Conteúdo completo no repositório original. -->
+    
+    <!-- Estilo Minimalista Baseado no Design do GitHub -->
+    <style>
+        :root {
+            --color-bg: #ffffff;
+            --color-text: #24292f;
+            --color-border: #d0d7de;
+            --color-accent: #0969da;
+            --color-code-bg: #f6f8fa;
+            --color-table-zebra: #f6f8fa;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--color-text);
+            background-color: var(--color-bg);
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+
+        h1, h2, h3 {
+            font-weight: 600;
+            line-height: 1.25;
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.3em;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        h1 { font-size: 2em; }
+        h2 { font-size: 1.5em; }
+
+        code {
+            padding: 0.2em 0.4em;
+            margin: 0;
+            font-size: 85%;
+            background-color: var(--color-code-bg);
+            border-radius: 6px;
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+        }
+
+        pre {
+            padding: 16px;
+            overflow: auto;
+            font-size: 85%;
+            line-height: 1.45;
+            background-color: var(--color-code-bg);
+            border-radius: 6px;
+            border: 1px solid var(--color-border);
+        }
+
+        pre code {
+            padding: 0;
+            background-color: transparent;
+            font-size: 100%;
+        }
+
+        table {
+            border-spacing: 0;
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 0;
+            margin-bottom: 16px;
+        }
+
+        table th, table td {
+            padding: 6px 13px;
+            border: 1px solid var(--color-border);
+        }
+
+        table tr:nth-child(even) {
+            background-color: var(--color-table-zebra);
+        }
+
+        .checklist {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .checklist li {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .checklist input[type="checkbox"] {
+            margin-right: 10px;
+            margin-top: 5px;
+            pointer-events: none; /* Apenas visual */
+        }
+
+        .highlight-box {
+            background-color: #ddf4ff;
+            border: 1px solid #54aeff;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+    </style>
 </head>
 <body>
+
     <h1>Guia de Instrumentação: OpenTelemetry em WinForms (.NET Framework 4.8)</h1>
-    <p>Guia de integração do <strong>OpenTelemetry (OTel)</strong> em aplicações .NET Framework 4.8.</p>
+    <p>Este guia orienta a integração do <strong>OpenTelemetry (OTel)</strong> em aplicações desktop baseadas em .NET Framework 4.8 Windows Forms. A configuração envia traces, métricas e eventos de ciclo de vida (workflows) diretamente para um <strong>OpenTelemetry Collector</strong>.</p>
+
     <h2>🚀 1. Instalação de Dependências</h2>
+    <p>Abra o <strong>Console do Gerenciador de Pacotes</strong> no Visual Studio e instale os pacotes necessários:</p>
     <pre><code>Install-Package OpenTelemetry
 Install-Package OpenTelemetry.Exporter.OpenTelemetryProtocol
 Install-Package OpenTelemetry.Extensions.Hosting</code></pre>
-    <h2>🏛️ 2. Inicialização Global</h2>
-    <pre><code>// Configuração básica no Main da aplicação
-var resourceBuilder = ResourceBuilder.CreateDefault().AddService("NomeDaAplicacaoCliente");
-string collectorUri = "http://localhost:4317"; 
-// ... configuração do tracer
-</code></pre>
-    <h2>🛠️ 3. Rastreando Workflows</h2>
-    <pre><code>using (Activity workflow = Program.WorkflowSource.StartActivity("WorkflowEmissaoNotaFiscal")) {
-    workflow?.SetTag("cliente.id", "99823");
-    // ...
+
+    <h2>🏛️ 2. Inicialização Global (Program.cs)</h2>
+    <p>O ciclo de vida do OpenTelemetry deve iniciar no ponto de entrada do aplicativo (<code>Main</code>), antes de renderizar qualquer interface gráfica.</p>
+    <pre><code>using System;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using System.Windows.Forms;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
+namespace AplicacaoCliente
+{
+    static class Program
+    {
+        public static readonly ActivitySource WorkflowSource = new ActivitySource("Cliente.WinForms.Workflow");
+        public static readonly Meter IndicadoresMeter = new Meter("Cliente.WinForms.Metrics");
+        
+        private static TracerProvider _tracerProvider;
+        private static MeterProvider _meterProvider;
+
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+
+            var resourceBuilder = ResourceBuilder.CreateDefault()
+                .AddService("NomeDaAplicacaoCliente", serviceVersion: "1.0.0");
+
+            string collectorUri = "http://localhost:4317"; 
+
+            _tracerProvider = Sdk.CreateTracerProviderBuilder()
+                .SetResourceBuilder(resourceBuilder)
+                .AddSource("Cliente.WinForms.Workflow")
+                .AddOtlpExporter(opt => opt.Endpoint = new Uri(collectorUri))
+                .Build();
+
+            _meterProvider = Sdk.CreateMeterProviderBuilder()
+                .SetResourceBuilder(resourceBuilder)
+                .AddMeter("Cliente.WinForms.Metrics")
+                .AddOtlpExporter(opt => opt.Endpoint = new Uri(collectorUri))
+                .Build();
+
+            Application.Run(new FormPrincipal());
+
+            _tracerProvider?.Dispose();
+            _meterProvider?.Dispose();
+        }
+    }
 }</code></pre>
+
+    <h2>🛠️ 3. Rastreando Workflows e Eventos Customizados</h2>
+    <p>Para identificar workflows de negócio e eventos de transição dentro da tela do usuário, utilize as propriedades <code>Activity</code> (Spans) e <code>ActivityEvent</code>.</p>
+    
+    <pre><code>// Exemplo dentro do FormPrincipal.cs
+private async void btnProcessar_Click(object sender, EventArgs e)
+{
+    using (Activity workflow = Program.WorkflowSource.StartActivity("WorkflowEmissaoNotaFiscal"))
+    {
+        workflow?.SetTag("cliente.id", "99823");
+        workflow?.SetTag("ambiente", "producao");
+
+        try
+        {
+            // --- EVENTO CUSTOMIZADO 1 ---
+            workflow?.AddEvent(new ActivityEvent("InicioValidacaoCadastral"));
+            await Task.Delay(800); 
+
+            // --- EVENTO CUSTOMIZADO 2 ---
+            workflow?.AddEvent(new ActivityEvent("FimValidacao_EnvioSefaz"));
+            await Task.Delay(1200); 
+
+            workflow?.SetStatus(ActivityStatusCode.Ok);
+        }
+        catch (Exception ex)
+        {
+            workflow?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            workflow?.RecordException(ex);
+            MessageBox.Show("Erro ao processar fluxo interno.");
+        }
+    }
+}</code></pre>
+
+    <h2>🗺️ 4. Conceitos Chave para o Cliente</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Conceito de Negócio</th>
+                <th>Elemento Técnico .NET</th>
+                <th>Representação no Collector</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Ciclo/Workflow Completo</strong></td>
+                <td><code>ActivitySource.StartActivity()</code></td>
+                <td><strong>Span</strong> (Processo com tempo de início e fim)</td>
+            </tr>
+            <tr>
+                <td><strong>Passo/Marcação de Etapa</strong></td>
+                <td><code>ActivityEvent</code></td>
+                <td><strong>Log Anotado</strong> (Injetado na linha do tempo do Span)</td>
+            </tr>
+            <tr>
+                <td><strong>Metadados de Negócio</strong></td>
+                <td><code>SetTag("chave", "valor")</code></td>
+                <td><strong>Attributes</strong> (Campos indexados para busca)</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>📌 Checklist de Validação</h2>
+    <ul class="checklist">
+        <li><input type="checkbox" checked> Os pacotes NuGet estão na mesma versão majoritária para evitar conflitos de DLL no .NET 4.8.</li>
+        <li><input type="checkbox" checked> O nome do <code>ActivitySource</code> no Program.cs é idêntico ao adicionado em <code>.AddSource()</code>.</li>
+        <li><input type="checkbox" checked> O endpoint do OTel Collector está acessível a partir da rede da aplicação desktop.</li>
+    </ul>
+
 </body>
 </html>
