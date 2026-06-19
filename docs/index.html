@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Guia de Instrumentação: OpenTelemetry em WinForms</title>
+    <!-- Estilos omitidos para concisão. Conteúdo completo no repositório original. -->
+</head>
+<body>
+    <h1>Guia de Instrumentação: OpenTelemetry em WinForms (.NET Framework 4.8)</h1>
+    <p>Guia de integração do <strong>OpenTelemetry (OTel)</strong> em aplicações .NET Framework 4.8.</p>
+    <h2>🚀 1. Instalação de Dependências</h2>
+    <pre><code>Install-Package OpenTelemetry
+Install-Package OpenTelemetry.Exporter.OpenTelemetryProtocol
+Install-Package OpenTelemetry.Extensions.Hosting</code></pre>
+    <h2>🏛️ 2. Inicialização Global</h2>
+    <pre><code>// Configuração básica no Main da aplicação
+var resourceBuilder = ResourceBuilder.CreateDefault().AddService("NomeDaAplicacaoCliente");
+string collectorUri = "http://localhost:4317"; 
+// ... configuração do tracer
+</code></pre>
+    <h2>🛠️ 3. Rastreando Workflows</h2>
+    <pre><code>using (Activity workflow = Program.WorkflowSource.StartActivity("WorkflowEmissaoNotaFiscal")) {
+    workflow?.SetTag("cliente.id", "99823");
+    // ...
+}</code></pre>
+</body>
+</html>
